@@ -12,8 +12,54 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3333;
 const POLL_INTERVAL = 500; // Poll every 500ms for smooth updates
+const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || readDashboardToken();
 
-// Serve static files
+// Read dashboard token from OpenClaw config or generate one
+function readDashboardToken() {
+  try {
+    const fs = require('fs');
+    const os = require('os');
+    const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      if (config.hooks && config.hooks.token) {
+        return config.hooks.token;
+      }
+    }
+  } catch (err) {
+    console.error('[Dashboard] Could not read token from config:', err.message);
+  }
+  // Fallback: generate a warning token
+  console.warn('[Dashboard] WARNING: No DASHBOARD_TOKEN set and config not found. Using insecure default.');
+  console.warn('[Dashboard] Set DASHBOARD_TOKEN environment variable or configure hooks.token in OpenClaw config.');
+  return 'INSECURE_DEFAULT_TOKEN';
+}
+
+// Authentication middleware
+function requireAuth(req, res, next) {
+  const token = req.headers['x-dashboard-token'] || req.query.token;
+  
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication required. Provide x-dashboard-token header or ?token= query param.' });
+  }
+  
+  if (token !== DASHBOARD_TOKEN) {
+    return res.status(403).json({ error: 'Invalid token' });
+  }
+  
+  next();
+}
+
+// Log startup info
+console.log('[Dashboard] Starting on port', PORT);
+if (DASHBOARD_TOKEN === 'INSECURE_DEFAULT_TOKEN') {
+  console.error('[Dashboard] ⚠️  SECURITY WARNING: Using default token. Set DASHBOARD_TOKEN env var!');
+} else {
+  console.log('[Dashboard] ✓ Authentication enabled (token loaded from config)');
+}
+
+// Serve static files (auth required)
+app.use(requireAuth);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Track active sessions
@@ -103,9 +149,24 @@ function pollSessions() {
   }
 }
 
+// Socket.IO authentication middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token || socket.handshake.query.token;
+  
+  if (!token) {
+    return next(new Error('Authentication required. Provide token in auth or query.'));
+  }
+  
+  if (token !== DASHBOARD_TOKEN) {
+    return next(new Error('Invalid token'));
+  }
+  
+  next();
+});
+
 // Socket connection handling
 io.on('connection', (socket) => {
-  console.log(`[*] Client connected: ${socket.id}`);
+  console.log(`[*] Client connected (authenticated): ${socket.id}`);
 
   // Send current session list
   const currentSessions = getWingmanSessions();

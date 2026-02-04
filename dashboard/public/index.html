@@ -461,7 +461,21 @@
   </div>
 
   <script>
-    const socket = io();
+    // Get token from URL query parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    
+    if (!token) {
+      document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;color:#ff3366;font-family:JetBrains Mono,monospace;"><h1>🔒 Authentication Required</h1><p style="margin-top:1rem;color:#6a6a7a;">Add <code>?token=YOUR_TOKEN</code> to the URL</p></div>';
+      throw new Error('Token required');
+    }
+    
+    // Connect with token authentication
+    const socket = io({
+      auth: { token },
+      query: { token }
+    });
+    
     const sessionsGrid = document.getElementById('sessionsGrid');
     const sessionCount = document.getElementById('sessionCount');
     const emptyState = document.getElementById('emptyState');
@@ -584,6 +598,13 @@
       console.log('Disconnected from server');
       connectionStatus.className = 'connection-status disconnected';
       connectionStatus.innerHTML = '<div class="status-dot" style="background:var(--accent-red)"></div><span>Disconnected</span>';
+    });
+    
+    socket.on('connect_error', (err) => {
+      console.error('Connection error:', err.message);
+      if (err.message.includes('token') || err.message.includes('Authentication')) {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;color:#ff3366;font-family:JetBrains Mono,monospace;"><h1>🔒 Authentication Failed</h1><p style="margin-top:1rem;color:#6a6a7a;">' + err.message + '</p><p style="margin-top:1rem;color:#6a6a7a;">Check your token and try again</p></div>';
+      }
     });
 
     socket.on('session:add', (session) => {

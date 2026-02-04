@@ -19,7 +19,12 @@ if [ -n "$OPENCLAW_REPLY_TO" ]; then
     # Extract channel type and target
     if [[ "$OPENCLAW_REPLY_TO" =~ ^([^:]+):([^:]+):(.+)$ ]]; then
         CHANNEL="${BASH_REMATCH[1]}"
-        TO="${BASH_REMATCH[2]}:${BASH_REMATCH[3]}"
+        TARGET_TYPE="${BASH_REMATCH[2]}"
+        TARGET_ID="${BASH_REMATCH[3]}"
+        # For Discord, use format: channel:ID
+        # For Telegram, use format: chat:ID  
+        # For WhatsApp, use format: phone number
+        TO="${TARGET_TYPE}:${TARGET_ID}"
     else
         echo "Error: Invalid OPENCLAW_REPLY_TO format: $OPENCLAW_REPLY_TO" >&2
         echo "Expected format: channel:type:id (e.g., discord:channel:123)" >&2
