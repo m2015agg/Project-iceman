@@ -17,11 +17,17 @@ LIB_DIR="$SCRIPT_DIR/lib"
 POLL_INTERVAL="${POLL_INTERVAL:-10}"
 REMINDER_INTERVAL="${REMINDER_INTERVAL:-300}"
 
-# File paths
-STATE_DIR="/tmp/claude-orchestrator"
+# File paths (use secure temp directory creation)
+STATE_DIR="${CLAUDE_MONITOR_STATE_DIR:-/tmp/claude-orchestrator}"
+# Create state dir with secure permissions if it doesn't exist
+if [ ! -d "$STATE_DIR" ]; then
+    mkdir -p "$STATE_DIR"
+    chmod 700 "$STATE_DIR"
+fi
 LOG_FILE="$STATE_DIR/master-monitor.log"
 PID_FILE="$STATE_DIR/master-monitor.pid"
 NOTIFY_STATE_DIR="$STATE_DIR/notify-state"
+CHANNEL_REGISTRY="$STATE_DIR/channel-registry.json"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -93,6 +99,40 @@ hash_prompt() {
     echo "$1" | md5 2>/dev/null || echo "$1" | md5sum 2>/dev/null | cut -d' ' -f1
 }
 
+# Channel registry functions
+get_session_channel() {
+    local session="$1"
+    if [ -f "$CHANNEL_REGISTRY" ]; then
+        jq -r --arg sess "$session" '.[$sess] // empty' "$CHANNEL_REGISTRY" 2>/dev/null || echo ""
+    else
+        echo ""
+    fi
+}
+
+set_session_channel() {
+    local session="$1"
+    local channel="$2"
+    local temp_file
+    temp_file=$(mktemp)
+    if [ -f "$CHANNEL_REGISTRY" ]; then
+        jq --arg sess "$session" --arg chan "$channel" '.[$sess] = $chan' "$CHANNEL_REGISTRY" > "$temp_file"
+    else
+        echo "{\"$session\": \"$channel\"}" | jq '.' > "$temp_file"
+    fi
+    mv "$temp_file" "$CHANNEL_REGISTRY"
+    chmod 600 "$CHANNEL_REGISTRY"
+}
+
+remove_session_channel() {
+    local session="$1"
+    if [ -f "$CHANNEL_REGISTRY" ]; then
+        local temp_file
+        temp_file=$(mktemp)
+        jq --arg sess "$session" 'del(.[$sess])' "$CHANNEL_REGISTRY" > "$temp_file"
+        mv "$temp_file" "$CHANNEL_REGISTRY"
+    fi
+}
+
 # Get notification state for a session
 get_notify_state() {
     local session="$1"
@@ -143,13 +183,27 @@ Reply with:
 
     log "INFO" "Sending notification for session: $session"
 
-    if "$LIB_DIR/send-notification.sh" "$message" >/dev/null 2>&1; then
-        log "INFO" "Notification sent for session: $session"
-        return 0
+    # Get channel from registry
+    local channel
+    channel=$(get_session_channel "$session")
+    
+    # Call send-notification with channel override if found
+    if [ -n "$channel" ]; then
+        log "INFO" "Using channel from registry: $channel"
+        if OPENCLAW_REPLY_TO="$channel" "$LIB_DIR/send-notification.sh" "$message" >/dev/null 2>&1; then
+            log "INFO" "Notification sent for session: $session to $channel"
+            return 0
+        fi
     else
-        log "ERROR" "Failed to send notification for session: $session"
-        return 1
+        log "WARN" "No channel found in registry for $session, using default"
+        if "$LIB_DIR/send-notification.sh" "$message" >/dev/null 2>&1; then
+            log "INFO" "Notification sent for session: $session (default channel)"
+            return 0
+        fi
     fi
+    
+    log "ERROR" "Failed to send notification for session: $session"
+    return 1
 }
 
 # Extract approval details from session output

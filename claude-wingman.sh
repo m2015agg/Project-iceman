@@ -163,9 +163,9 @@ for i in {1..5}; do
     sleep 1
 done
 
-# Step 4: Send prompt
+# Step 4: Send prompt (use -l for literal to prevent command injection)
 echo "[Wingman] Sending prompt..."
-tmux send-keys -t "$SESSION_NAME" "$PROMPT"
+tmux send-keys -t "$SESSION_NAME" -l -- "$PROMPT"
 sleep 1
 # Send Enter explicitly (C-m might not always work reliably in tmux)
 tmux send-keys -t "$SESSION_NAME" C-m

@@ -10,11 +10,28 @@
 set -e
 
 MESSAGE="${1:-}"
-CLAWDBOT_CONFIG="${CLAWDBOT_CONFIG:-$HOME/.clawdbot/clawdbot.json}"
+CLAWDBOT_CONFIG="${CLAWDBOT_CONFIG:-$HOME/.openclaw/openclaw.json}"
 WEBHOOK_URL="${CLAWDBOT_WEBHOOK_URL:-http://127.0.0.1:18789/hooks/agent}"
 
-# Determine channel (telegram or whatsapp)
-CHANNEL="${CLAWDBOT_CHANNEL:-}"
+# Check for direct channel override (from registry)
+if [ -n "$OPENCLAW_REPLY_TO" ]; then
+    # Format: "discord:channel:123456789" or "telegram:chat:987654"
+    # Extract channel type and target
+    if [[ "$OPENCLAW_REPLY_TO" =~ ^([^:]+):([^:]+):(.+)$ ]]; then
+        CHANNEL="${BASH_REMATCH[1]}"
+        TO="${BASH_REMATCH[2]}:${BASH_REMATCH[3]}"
+    else
+        echo "Error: Invalid OPENCLAW_REPLY_TO format: $OPENCLAW_REPLY_TO" >&2
+        echo "Expected format: channel:type:id (e.g., discord:channel:123)" >&2
+        exit 1
+    fi
+else
+    # Determine channel (telegram or whatsapp) from config
+    CHANNEL="${CLAWDBOT_CHANNEL:-}"
+fi
+
+# Only do auto-detection if OPENCLAW_REPLY_TO wasn't set
+if [ -z "$OPENCLAW_REPLY_TO" ]; then
 
 # Auto-detect channel from config if not set
 if [ -z "$CHANNEL" ] && [ -f "$CLAWDBOT_CONFIG" ]; then
@@ -59,6 +76,7 @@ else
         exit 1
     fi
 fi
+fi  # End of OPENCLAW_REPLY_TO check
 
 # Get webhook token from env or clawdbot config
 if [ -n "$CLAWDBOT_WEBHOOK_TOKEN" ]; then
